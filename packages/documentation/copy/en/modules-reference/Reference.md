@@ -199,15 +199,21 @@ declare module "*.html" {
 
 ## The `module` compiler option
 
-This section discusses the details of each `module` compiler option value. See the [_Module output format_](/docs/handbook/modules/theory.html#the-module-output-format) theory section for more background on what the option is and how it fits into the overall compilation process. In brief, the `module` compiler option was historically only used to control the output module format of emitted JavaScript files. The more recent `node16` and `nodenext` values, however, describe a wide range of characteristics of Node.js’s module system, including what module formats are supported, how the module format of each file is determined, and how different module formats interoperate.
+This section discusses the details of each `module` compiler option value. See the [_Module output format_](/docs/handbook/modules/theory.html#the-module-output-format) theory section for more background on what the option is and how it fits into the overall compilation process. In brief, the `module` compiler option was historically only used to control the output module format of emitted JavaScript files. The more recent `node16`, `node18`, and `nodenext` values, however, describe a wide range of characteristics of Node.js’s module system, including what module formats are supported, how the module format of each file is determined, and how different module formats interoperate.
 
-### `node16`, `nodenext`
+### `node16`, `node18`, `nodenext`
 
-Node.js supports both CommonJS and ECMAScript modules, with specific rules for which format each file can be and how the two formats are allowed to interoperate. `node16` and `nodenext` describe the full range of behavior for Node.js’s dual-format module system, and **emit files in either CommonJS or ESM format**. This is different from every other `module` option, which are runtime-agnostic and force all output files into a single format, leaving it to the user to ensure the output is valid for their runtime.
+Node.js supports both CommonJS and ECMAScript modules, with specific rules for which format each file can be and how the two formats are allowed to interoperate. `node16`, `node18`, and `nodenext` describe the full range of behavior for Node.js’s dual-format module system, and **emit files in either CommonJS or ESM format**. This is different from every other `module` option, which are runtime-agnostic and force all output files into a single format, leaving it to the user to ensure the output is valid for their runtime.
 
-> A common misconception is that `node16` and `nodenext` only emit ES modules. In reality, `node16` and `nodenext` describe versions of Node.js that _support_ ES modules, not just projects that _use_ ES modules. Both ESM and CommonJS emit are supported, based on the [detected module format](#module-format-detection) of each file. Because `node16` and `nodenext` are the only `module` options that reflect the complexities of Node.js’s dual module system, the are the **only correct `module` options** for all apps and libraries that are intended to run in Node.js v12 or later, whether they use ES modules or not.
+> A common misconception is that `node16`—`nodenext` only emit ES modules. In reality, these modes describe versions of Node.js that _support_ ES modules, not just projects that _use_ ES modules. Both ESM and CommonJS emit are supported, based on the [detected module format](#module-format-detection) of each file. Because they are the only `module` options that reflect the complexities of Node.js’s dual module system, they are the **only correct `module` options** for all apps and libraries that are intended to run in Node.js v12 or later, whether they use ES modules or not.
 
-`node16` and `nodenext` are currently identical, with the exception that they [imply different `target` option values](#implied-and-enforced-options). If Node.js makes significant changes to its module system in the future, `node16` will be frozen while `nodenext` will be updated to reflect the new behavior.
+The fixed-version `node16` and `node18` modes represent the module system behavior stabilized in their respective Node.js versions, while the `nodenext` mode changes with the latest stable versions of Node.js. The following table summarizes the current differences between the three modes:
+
+|          | `target` | `moduleResolution` | import assertions | import attributes | JSON imports        | require(esm) |
+|----------|----------|--------------------|-------------------|-------------------|---------------------|--------------|
+| node16   | `es2022` | `node16`           | ❌                | ❌                 | no restrictions     | ❌           |
+| node18   | `es2022` | `node16`           | ✅                | ✅                 | needs `type "json"` | ❌           |
+| nodenext | `esnext` | `nodenext`         | ❌                | ✅                 | needs `type "json"` | ✅           |
 
 #### Module format detection
 
@@ -221,20 +227,23 @@ The detected module format of input `.ts`/`.tsx`/`.mts`/`.cts` files determines 
 
 - **When an ES module references a CommonJS module:**
   - The `module.exports` of the CommonJS module is available as a default import to the ES module.
-  - Properties (other than `default`) of the CommonJS module’s `module.exports` may or may not be available as named imports to the ES module. Node.js attempts to make them available via [static analysis](https://github.com/nodejs/cjs-module-lexer). TypeScript cannot know from a declaration file whether that static analysis will succeed, and optimistically assumes it will. This limits TypeScript’s ability to catch named imports that may crash at runtime. See [#54018](https://github.com/nodejs/cjs-module-lexer) for more details.
+  - Properties (other than `default`) of the CommonJS module’s `module.exports` may or may not be available as named imports to the ES module. Node.js attempts to make them available via [static analysis](https://github.com/nodejs/cjs-module-lexer). TypeScript cannot know from a declaration file whether that static analysis will succeed, and optimistically assumes it will. This limits TypeScript’s ability to catch named imports that may crash at runtime. See [#54018](https://github.com/microsoft/TypeScript/issues/54018) for more details.
 - **When a CommonJS module references an ES module:**
-  - `require` cannot reference an ES module. For TypeScript, this includes `import` statements in files that are [detected](#module-format-detection) to be CommonJS modules, since those `import` statements will be transformed to `require` calls in the emitted JavaScript.
-  - A dynamic `import()` call may be used to import an ES module. It returns a Promise of the module’s Module Namespace Object (what you’d get from `import * as ns from "./module.js"` from another ES module).
+  - In `node16` and `node18`, `require` cannot reference an ES module. For TypeScript, this includes `import` statements in files that are [detected](#module-format-detection) to be CommonJS modules, since those `import` statements will be transformed to `require` calls in the emitted JavaScript.
+  - In `nodenext`, to reflect the behavior of Node.js v22.12.0 and later, `require` can reference an ES module. In Node.js, an error is thrown if the ES module, or any of its imported modules, uses top-level `await`. TypeScript does not attempt to detect this case and will not emit a compile-time error. The result of the `require` call is the module’s Module Namespace Object, i.e., the same as the result of an `await import()` of the same module (but without the need to `await` anything).
+  - A dynamic `import()` call can always be used to import an ES module. It returns a Promise of the module’s Module Namespace Object (what you’d get from `import * as ns from "./module.js"` from another ES module).
 
 #### Emit
 
 The emit format of each file is determined by the [detected module format](#module-format-detection) of each file. ESM emit is similar to [`--module esnext`](#es2015-es2020-es2022-esnext), but has a special transformation for `import x = require("...")`, which is not allowed in `--module esnext`:
 
 ```ts
+// @Filename: main.ts
 import x = require("mod");
 ```
 
 ```js
+// @Filename: main.js
 import { createRequire as _createRequire } from "module";
 const __require = _createRequire(import.meta.url);
 const x = __require("mod");
@@ -243,11 +252,13 @@ const x = __require("mod");
 CommonJS emit is similar to [`--module commonjs`](#commonjs), but dynamic `import()` calls are not transformed. Emit here is shown with `esModuleInterop` enabled:
 
 ```ts
+// @Filename: main.ts
 import fs from "fs"; // transformed
 const dynamic = import("mod"); // not transformed
 ```
 
 ```js
+// @Filename: main.js
 "use strict";
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
@@ -259,25 +270,63 @@ const dynamic = import("mod"); // not transformed
 
 #### Implied and enforced options
 
-- `--module nodenext` or `node16` implies and enforces the `moduleResolution` with the same name.
+- `--module nodenext` implies and enforces `--moduleResolution nodenext`.
+- `--module node18` or `node16` implies and enforces `--moduleResolution node16`.
 - `--module nodenext` implies `--target esnext`.
-- `--module node16` implies `--target es2022`.
-- `--module nodenext` or `node16` implies `--esModuleInterop`.
+- `--module node18` or `node16` implies `--target es2022`.
+- `--module nodenext` or `node18` or `node16` implies `--esModuleInterop`.
 
 #### Summary
 
-- `node16` and `nodenext` are the only correct `module` options for all apps and libraries that are intended to run in Node.js v12 or later, whether they use ES modules or not.
-- `node16` and `nodenext` emit files in either CommonJS or ESM format, based on the [detected module format](#module-format-detection) of each file.
+- `node16`, `node18`, and `nodenext` are the only correct `module` options for all apps and libraries that are intended to run in Node.js v12 or later, whether they use ES modules or not.
+- `node16`, `node18`, and `nodenext` emit files in either CommonJS or ESM format, based on the [detected module format](#module-format-detection) of each file.
 - Node.js’s interoperability rules between ESM and CJS are reflected in type checking.
 - ESM emit transforms `import x = require("...")` to a `require` call constructed from a `createRequire` import.
 - CommonJS emit leaves dynamic `import()` calls untransformed, so CommonJS modules can asynchronously import ES modules.
+
+### `preserve`
+
+In `--module preserve` ([added](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-4.html#support-for-require-calls-in---moduleresolution-bundler-and---module-preserve) in TypeScript 5.4), ECMAScript imports and exports written in input files are preserved in the output, and CommonJS-style `import x = require("...")` and `export = ...` statements are emitted as CommonJS `require` and `module.exports`. In other words, the format of each individual import or export statement is preserved, rather than being coerced into a single format for the whole compilation (or even a whole file).
+
+While it’s rare to need to mix imports and require calls in the same file, this `module` mode best reflects the capabilities of most modern bundlers, as well as the Bun runtime.
+
+> Why care about TypeScript’s `module` emit with a bundler or with Bun, where you’re likely also setting `noEmit`? TypeScript’s type checking and module resolution behavior are affected by the module format that it _would_ emit. Setting `module` gives TypeScript information about how your bundler or runtime will process imports and exports, which ensures that the types you see on imported values accurately reflect what will happen at runtime or after bundling. See [`--moduleResolution bundler`](#bundler) for more discussion.
+
+#### Examples
+
+```ts
+// @Filename: main.ts
+import x, { y, z } from "mod";
+import mod = require("mod");
+const dynamic = import("mod");
+
+export const e1 = 0;
+export default "default export";
+```
+
+```js
+// @Filename: main.js
+import x, { y, z } from "mod";
+const mod = require("mod");
+const dynamic = import("mod");
+
+export const e1 = 0;
+export default "default export";
+```
+
+#### Implied and enforced options
+
+- `--module preserve` implies `--moduleResolution bundler`.
+- `--module preserve` implies `--esModuleInterop`.
+
+> The option `--esModuleInterop` is enabled by default in `--module preserve` only for its [type checking](https://www.typescriptlang.org/docs/handbook/modules/appendices/esm-cjs-interop.html#allowsyntheticdefaultimports-and-esmoduleinterop) behavior. Since imports never transform into require calls in `--module preserve`, `--esModuleInterop` does not affect the emitted JavaScript.
 
 ### `es2015`, `es2020`, `es2022`, `esnext`
 
 #### Summary
 
 - Use `esnext` with `--moduleResolution bundler` for bundlers, Bun, and tsx.
-- Do not use for Node.js. Use `node16` or `nodenext` with `"type": "module"` in package.json to emit ES modules for Node.js.
+- Do not use for Node.js. Use `node16`, `node18`, or `nodenext` with `"type": "module"` in package.json to emit ES modules for Node.js.
 - `import mod = require("mod")` is not allowed in non-declaration files.
 - `es2020` adds support for `import.meta` properties.
 - `es2022` adds support for top-level `await`.
@@ -287,6 +336,7 @@ const dynamic = import("mod"); // not transformed
 #### Examples
 
 ```ts
+// @Filename: main.ts
 import x, { y, z } from "mod";
 import * as mod from "mod";
 const dynamic = import("mod");
@@ -297,6 +347,7 @@ export default "default export";
 ```
 
 ```js
+// @Filename: main.js
 import x, { y, z } from "mod";
 import * as mod from "mod";
 const dynamic = import("mod");
@@ -310,7 +361,7 @@ export default "default export";
 
 #### Summary
 
-- You probably shouldn’t use this. Use `node16` or `nodenext` to emit CommonJS modules for Node.js.
+- You probably shouldn’t use this. Use `node16`, `node18`, or `nodenext` to emit CommonJS modules for Node.js.
 - Emitted files are CommonJS modules, but dependencies may be any format.
 - Dynamic `import()` is transformed to a Promise of a `require()` call.
 - `esModuleInterop` affects the output code for default and namespace imports.
@@ -320,6 +371,7 @@ export default "default export";
 > Output is shown with `esModuleInterop: false`.
 
 ```ts
+// @Filename: main.ts
 import x, { y, z } from "mod";
 import * as mod from "mod";
 const dynamic = import("mod");
@@ -330,6 +382,7 @@ export default "default export";
 ```
 
 ```js
+// @Filename: main.js
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.e1 = void 0;
@@ -343,6 +396,7 @@ exports.default = "default export";
 ```
 
 ```ts
+// @Filename: main.ts
 import mod = require("mod");
 console.log(mod);
 
@@ -353,6 +407,7 @@ export = {
 ```
 
 ```js
+// @Filename: main.js
 "use strict";
 const mod = require("mod");
 console.log(mod);
@@ -372,6 +427,7 @@ module.exports = {
 #### Examples
 
 ```ts
+// @Filename: main.ts
 import x, { y, z } from "mod";
 import * as mod from "mod";
 const dynamic = import("mod");
@@ -382,6 +438,7 @@ export default "default export";
 ```
 
 ```js
+// @Filename: main.js
 System.register(["mod"], function (exports_1, context_1) {
     "use strict";
     var mod_1, mod, dynamic, e1;
@@ -415,6 +472,7 @@ System.register(["mod"], function (exports_1, context_1) {
 #### Examples
 
 ```ts
+// @Filename: main.ts
 import x, { y, z } from "mod";
 import * as mod from "mod";
 const dynamic = import("mod");
@@ -425,6 +483,7 @@ export default "default export";
 ```
 
 ```js
+// @Filename: main.js
 define(["require", "exports", "mod", "mod"], function (require, exports, mod_1, mod) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -449,6 +508,7 @@ define(["require", "exports", "mod", "mod"], function (require, exports, mod_1, 
 #### Examples
 
 ```ts
+// @Filename: main.ts
 import x, { y, z } from "mod";
 import * as mod from "mod";
 const dynamic = import("mod");
@@ -459,6 +519,7 @@ export default "default export";
 ```
 
 ```js
+// @Filename: main.js
 (function (factory) {
     if (typeof module === "object" && typeof module.exports === "object") {
         var v = factory(require, exports);
@@ -950,7 +1011,7 @@ import foo = require("pkg/dist/foo"); // ✅ require, no extension needed
 
 #### package.json `"imports"` and self-name imports
 
-When `moduleResolution` is set to `node16`, `nodenext`, or `bundler`, and `resolvePackageJsonImports` is not disabled, TypeScript will attempt to resolve import paths beginning with `#` through the the `"imports"` field of the nearest ancestor package.json of the importing file. Similarly, when [package.json `"exports"` lookups](#packagejson-exports) are enabled, TypeScript will attempt to resolve import paths beginning with the current package name—that is, the value in the `"name"` field of the nearest ancestor package.json of the importing file—through the `"exports"` field of that package.json. Both of these features allow files in a package to import other files in the same package, replacing a relative import path.
+When `moduleResolution` is set to `node16`, `nodenext`, or `bundler`, and `resolvePackageJsonImports` is not disabled, TypeScript will attempt to resolve import paths beginning with `#` through the `"imports"` field of the nearest ancestor package.json of the importing file. Similarly, when [package.json `"exports"` lookups](#packagejson-exports) are enabled, TypeScript will attempt to resolve import paths beginning with the current package name—that is, the value in the `"name"` field of the nearest ancestor package.json of the importing file—through the `"exports"` field of that package.json. Both of these features allow files in a package to import other files in the same package, replacing a relative import path.
 
 TypeScript follows Node.js’s resolution algorithm for [`"imports"`](https://nodejs.org/api/packages.html#subpath-imports) and [self references](https://nodejs.org/api/packages.html#self-referencing-a-package-using-its-name) exactly up until a file path is resolved. At that point, TypeScript’s resolution algorithm forks based on whether the package.json containing the `"imports"` or `"exports"` being resolved belongs to a `node_modules` dependency or the local project being compiled (i.e., its directory contains the tsconfig.json file for the project that contains the importing file):
 
@@ -1060,7 +1121,7 @@ import mod = require("./mod");        // `require` algorithm due to syntax (emit
 
 #### Implied and enforced options
 
-- `--moduleResolution node16` and `nodenext` must be paired with their [corresponding `module` value](#node16-nodenext). 
+- `--moduleResolution node16` and `nodenext` must be paired with [`--module node16`, `node18`, or `nodenext`](#node16-node18-nodenext). 
 
 #### Supported features
 
@@ -1083,33 +1144,29 @@ Features are listed in order of precedence.
 
 `--moduleResolution bundler` attempts to model the module resolution behavior common to most JavaScript bundlers. In short, this means supporting all the behaviors traditionally associated with Node.js’s CommonJS `require` resolution algorithm like [`node_modules` lookups](#node_modules-package-lookups), [directory modules](#directory-modules-index-file-resolution), and [extensionless paths](#extensionless-relative-paths), while also supporting newer Node.js resolution features like [package.json `"exports"`](#packagejson-exports) and [package.json `"imports"`](#packagejson-imports-and-self-name-imports).
 
-This is very similar to the behavior of [`node16` and `nodenext`](#node16-nodenext-1) resolving in CommonJS mode, but in `bundler`, the conditions used to resolve package.json `"exports"` and `"imports"` are always `"types"` and `"import"`. To understand why, let’s compare against what happens to an import in a `.ts` file in `nodenext`:
+It’s instructive to think about the similarities and differences between `--moduleResolution bundler` and `--moduleResolution nodenext`, particularly in how they decide what conditions to use when resolving package.json `"exports"` or `"imports"`. Consider an import statement in a `.ts` file:
 
 ```ts
 // index.ts
 import { foo } from "pkg";
 ```
 
-In `--module nodenext --moduleResolution nodenext`, the `--module` setting first [determines](#module-format-detection) whether the import will be emitted to the `.js` file as an `import` or `require` call and passes that information to TypeScript’s module resolver, which decides whether to match `"import"` or `"require"` conditions accordingly. This ensures TypeScript’s module resolution process, although working from input `.ts` files, reflects what will happen in Node.js’s module resolution process when it runs the output `.js` files.
+Recall that in `--module nodenext --moduleResolution nodenext`, the `--module` setting first [determines](#module-format-detection) whether the import will be emitted to the `.js` file as an `import` or `require` call, then passes that information to TypeScript’s module resolver, which decides whether to match `"import"` or `"require"` conditions in `"pkg"`’s package.json `"exports"` accordingly. Let’s assume that there’s no package.json in scope of this file. The file extension is `.ts`, so the output file extension will be `.js`, which Node.js will interpret as CommonJS, so TypeScript will emit this `import` as a `require` call. So, the module resolver will use the `require` condition as it resolves `"exports"` from `"pkg"`.
 
-When using a bundler, on the other hand, the bundler typically processes the raw `.ts` files directly and runs its module resolution process on the untransformed `import` statement. In this scenario, it doesn’t make a lot of sense to think about how TypeScript will emit the `import`, because TypeScript isn’t being used to emit anything at all. As far as the bundler is concerned, `import`s are `import`s and `require`s are `require`s, so the conditions used to resolve package.json `"exports"` and `"imports"` are determined by the syntax seen in the input `.ts` file. Likewise, the conditions TypeScript’s module resolution process uses in `--moduleResolution bundler` are _also_ determined by the input syntax in input TypeScript files—it’s just that `require` calls are not currently resolved at all:
+The same process happens in `--moduleResolution bundler`, but the rules for deciding whether to emit an `import` or `require` call for this import statement will be different, since `--moduleResolution bundler` necessitates using [`--module esnext`](#es2015-es2020-es2022-esnext) or [`--module preserve`](#preserve). In both of those modes, ESM `import` declarations always emit as ESM `import` declarations, so TypeScript’s module resolver will receive that information and use the `"import"` condition as it resolves `"exports"` from `"pkg"`.
+
+This explanation may be somewhat unintuitive, since `--moduleResolution bundler` is usually used in combination with `--noEmit`—bundlers typically process raw `.ts` files and perform module resolution on untransformed `import`s or `require`s. However, for consistency, TypeScript still uses the hypothetical emit decided by `module` to inform module resolution and type checking. This makes [`--module preserve`](#preserve) the best choice whenever a runtime or bundler is operating on raw `.ts` files, since it implies no transformation. Under `--module preserve --moduleResolution bundler`, you can write imports and requires in the same file that will resolve with the `import` and `require` conditions, respectively:
 
 ```ts
-// Some library file:
-declare function require(module: string): any;
-
 // index.ts
-import { foo } from "pkg";    // Resolved with "import" condition
-import pkg2 = require("pkg"); // Not allowed
-const pkg = require("pkg");   // Not an error, but not resolved to anything
-   // ^? any
+import pkg1 from "pkg";       // Resolved with "import" condition
+import pkg2 = require("pkg"); // Resolved with "require" condition
 ```
 
-Since TypeScript doesn’t currently support resolving `require` calls in `--moduleResolution bundler`, everything it _does_ resolve uses the `"import"` condition.
 
 #### Implied and enforced options
 
-- `--moduleResolution bundler` must be paired with the `--module esnext` option.
+- `--moduleResolution bundler` must be paired with `--module esnext` or `--module preserve`.
 - `--moduleResolution bundler` implies `--allowSyntheticDefaultImports`.
 
 #### Supported features
@@ -1117,8 +1174,8 @@ Since TypeScript doesn’t currently support resolving `require` calls in `--mod
 - [`paths`](#paths) ✅
 - [`baseUrl`](#baseurl) ✅
 - [`node_modules` package lookups](#node_modules-package-lookups) ✅
-- [package.json `"exports"`](#packagejson-exports) ✅ matches `types`, `import`
-- [package.json `"imports"` and self-name imports](#packagejson-imports-and-self-name-imports) ✅ matches `types`, `import`
+- [package.json `"exports"`](#packagejson-exports) ✅ matches `types`, `import`/`require` depending on syntax
+- [package.json `"imports"` and self-name imports](#packagejson-imports-and-self-name-imports) ✅ matches `types`, `import`/`require` depending on syntax
 - [package.json `"typesVersions"`](#packagejson-typesversions) ✅
 - [Package-relative paths](#package-relative-file-paths) ✅ when `exports` not present
 - [Full relative paths](#relative-file-path-resolution) ✅

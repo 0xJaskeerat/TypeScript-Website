@@ -9,11 +9,14 @@ translatable: true
 The list below outlines which constructs are currently supported
 when using JSDoc annotations to provide type information in JavaScript files.
 
-Note any tags which are not explicitly listed below (such as `@async`) are not yet supported.
+Note:
+- Any tags which are not explicitly listed below (such as `@async`) are not yet supported.
+- Only documentation tags are supported in TypeScript files. The rest of the tags are only supported in JavaScript files.
 
 #### Types
 
 - [`@type`](#type)
+- [`@import`](#import)
 - [`@param`](#param-and-returns) (or [`@arg`](#param-and-returns) or [`@argument`](#param-and-returns))
 - [`@returns`](#param-and-returns) (or [`@return`](#param-and-returns))
 - [`@typedef`](#typedef-callback-and-param)
@@ -196,29 +199,10 @@ function walk(p) {
 }
 ```
 
-import types can be used in type alias declarations:
-
-```js twoslash
-// @filename: types.d.ts
-export type Pet = {
-  name: string,
-};
-// @filename: main.js
-// ---cut---
-/**
- * @typedef {import("./types").Pet} Pet
- */
-
-/**
- * @type {Pet}
- */
-var myPet;
-myPet.name;
-```
-
 import types can be used to get the type of a value from a module if you don't know the type, or if it has a large type that is annoying to type:
 
 ```js twoslash
+// @types: node
 // @filename: accounts.d.ts
 export const userAccount = {
   name: "Name",
@@ -236,6 +220,44 @@ export const userAccount = {
  * @type {typeof import("./accounts").userAccount}
  */
 var x = require("./accounts").userAccount;
+```
+
+### `@import`
+
+The `@import` tag can let us reference exports from other files.
+
+```js twoslash
+// @filename: types.d.ts
+export type Pet = {
+  name: string,
+};
+// @filename: main.js
+// ---cut---
+/**
+ * @import {Pet} from "./types"
+ */
+
+/**
+ * @type {Pet}
+ */
+var myPet;
+myPet.name;
+```
+
+These tags don't actually import files at runtime, and the symbols they bring into scope can only be used within JSDoc comments for type-checking.
+
+```js twoslash
+// @filename: dog.js
+export class Dog {
+  woof() {
+    console.log("Woof!");
+  }
+}
+
+// @filename: main.js
+/** @import { Dog } from "./dog.js" */
+
+const d = new Dog(); // error!
 ```
 
 ### `@param` and `@returns`
@@ -664,6 +686,38 @@ function box<U>(u: U): Box<U> {
 }
 ```
 
+You can also link a property:
+
+```ts twoslash 
+type Pet = {
+  name: string
+  hello: () => string
+}
+
+/**
+ * Note: you should implement the {@link Pet.hello} method of Pet.
+ */
+function hello(p: Pet) {
+  p.hello()
+}
+```
+
+Or with an optional name:
+
+```ts twoslash
+type Pet = {
+  name: string
+  hello: () => string
+}
+
+/**
+ * Note: you should implement the {@link Pet.hello | hello} method of Pet.
+ */
+function hello(p: Pet) {
+  p.hello()
+}
+```
+
 ## Other
 
 ### `@enum`
@@ -712,6 +766,7 @@ Otherwise, `@example` will be parsed as a new tag.
 ### Other supported patterns
 
 ```js twoslash
+// @types: react
 class Foo {}
 // ---cut---
 var someObj = {
@@ -823,7 +878,32 @@ TypeScript ignores any unsupported JSDoc tags.
 
 The following tags have open issues to support them:
 
-- `@const` ([issue #19672](https://github.com/Microsoft/TypeScript/issues/19672))
-- `@inheritdoc` ([issue #23215](https://github.com/Microsoft/TypeScript/issues/23215))
 - `@memberof` ([issue #7237](https://github.com/Microsoft/TypeScript/issues/7237))
 - `@yields` ([issue #23857](https://github.com/Microsoft/TypeScript/issues/23857))
+- `@member` ([issue #56674](https://github.com/microsoft/TypeScript/issues/56674))
+
+### Legacy type synonyms
+
+A number of common types are given aliases for compatibility with old JavaScript code.
+Some of the aliases are the same as existing types, although most of those are rarely used.
+For example, `String` is treated as an alias for `string`.
+Even though `String` is a type in TypeScript, old JSDoc often uses it to mean `string`.
+Besides, in TypeScript, the capitalized versions of primitive types are wrapper types -- almost always a mistake to use.
+So the compiler treats these types as synonyms based on usage in old JSDoc:
+
+- `String -> string`
+- `Number -> number`
+- `Boolean -> boolean`
+- `Void -> void`
+- `Undefined -> undefined`
+- `Null -> null`
+- `function -> Function`
+- `array -> Array<any>`
+- `promise -> Promise<any>`
+- `Object -> any`
+- `object -> any`
+
+The last four aliases are turned off when `noImplicitAny: true`:
+
+- `object` and `Object` are built-in types, although `Object` is rarely used.
+- `array` and `promise` are not built-in, but might be declared somewhere in your program.

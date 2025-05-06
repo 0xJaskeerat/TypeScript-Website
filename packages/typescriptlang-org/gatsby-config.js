@@ -8,11 +8,13 @@ if (process.env.BOOTSTRAPPING) {
 
   // prettier-ignore
   console.log(`
-  Bootstrapped. You can now run the site with ${chalk.greenBright.bold("yarn start")}.`)
+  Bootstrapped. You can now run the site with ${chalk.greenBright.bold("pnpm start")}.`)
   process.exit(0)
 }
 
 require("./scripts/ensureDepsAreBuilt")
+
+const ts = require("typescript");
 
 // https://github.com/gatsbyjs/gatsby/issues/1457
 require("ts-node").register({ files: true })
@@ -157,6 +159,10 @@ module.exports = {
               addTryButton: true,
               defaultOptions: {
                 noErrorValidation: true,
+              },
+              defaultCompilerOptions: {
+                types: [],
+                target: ts.ScriptTarget.ES2020,
               },
             },
           },
